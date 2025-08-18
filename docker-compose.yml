@@ -1,0 +1,72 @@
+version: '2'
+
+services:
+  auth_service:
+    build: ./auth_service/
+#    image: auth_service
+    ports:
+      - "8080:8080"
+    links:
+      - auth_service_mysql
+      - apache
+  #  volumes:
+  #    - "./auth_service:/auth_service"
+  #    - "./auth_service/node_modules:/auth_service"
+    networks:
+      - auth
+    depends_on:
+      - auth_service_mysql
+      - auth_service_redis
+    environment:
+      - PUBLIC_PEM=${PUBLIC_PEM}
+      - PRIVATE_PEM=${PRIVATE_PEM}
+      - LONG_EXPIRE=${LONG_EXPIRE}
+      - USERNAME=${TEST_USER}
+      - PASSWORD=${TEST_PASS}
+      - MYSQL_ROOT_PASSWORD=${AUTH_DB_MYSQL_ROOT_PASSWORD}
+      - MYSQL_USERNAME=${MYSQL_USERNAME}
+      - MYSQL_DATABASE=${AUTH_DB_MYSQL_DATABASE}
+      - MYSQL_HOST=${MYSQL_HOST}
+
+  auth_service_mysql:
+    image: mysql:5.6
+    ports:
+      - 3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=${AUTH_DB_MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${AUTH_DB_MYSQL_DATABASE} # creates a DB with this name
+    networks:
+      - auth
+    volumes:
+      - "/data/auth/db:/var/lib/mysql"
+  apache:
+    image: httpd:2.4
+    volumes:
+      - "./apache/cert.crt:/usr/local/apache2/conf/server.crt:ro"
+      - "./apache/key.key:/usr/local/apache2/conf/server.key:ro"
+      - "./apache/cacert.pem:/usr/local/apache2/conf/cacert.pem:ro"
+      - "./apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro"
+      - "./apache/httpd-ssl.conf:/usr/local/apache2/conf/extra/httpd-ssl.conf:ro"
+      - "./apache/ldap.conf:/etc/ldap/ldap.conf:ro"
+    ports:
+      - "443:443"
+    networks:
+      - auth
+  auth_service_redis:
+    image: redis:3.2
+    networks:
+      - auth
+  # cron:
+  #   build: ./cron
+  #   links:
+  #     - auth_service_mysql
+  #   networks:
+  #     - auth
+  #   depends_on:
+  #     - auth_service_mysql
+
+volumes:
+  auth-datavolume:
+networks:
+  auth:
+    driver: bridge

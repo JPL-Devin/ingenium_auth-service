@@ -1,0 +1,4 @@
+PyJWT==1.5.3
+requests==2.18.4
+cryptography==2.2.2
+unittest-xml-reporting==2.4.0
