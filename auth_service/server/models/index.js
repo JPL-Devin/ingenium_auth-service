@@ -5,12 +5,9 @@ var path      = require('path');
 var Sequelize = require('sequelize');
 var basename  = path.basename(module.filename);
 var db        = {};
-const Umzug = require('umzug');
 const migrate = require('../migrate.js');
-var Promise = require('bluebird');
 var env_config = require(path.join(process.env.PWD, '/env_config.js'));
 const node_funcs = require('../../node_funcs.js');
-var sleep = require('sleep');
 
 const log = node_funcs.log;
 
@@ -20,7 +17,8 @@ try{
     "database": env_config.db_name,
     "host": env_config.db_host, 
     "dialect": "mysql",
-    "logging": false
+    "logging": false,
+    "dialectModule": require('mysql2')
   });
 } catch(e) {
   log.warn("Could not establish connection with MySQL, try rebuilding & rerunning.");
@@ -32,7 +30,8 @@ try{
   var sequelize_dhc = new Sequelize("", env_config.db_username, env_config.db_password, {
     "database": "",
     "host": env_config.db_host, 
-    "dialect": "mysql"
+    "dialect": "mysql",
+    "dialectModule": require('mysql2')
   });
 
   try{
@@ -46,8 +45,8 @@ async function init_db(count) {
   // dont try connecting to database after the last attempt
   if (count > 0) {
     log.info(`Attempting to connect to DB. Remaining count: ${count}`);
-    // sleep for 5 seconds, set to 5 so that full migration script can be ran without being cut off
-    sleep.sleep(5);
+    // wait for 5 seconds, set to 5 so that full migration script can be ran without being cut off
+    await new Promise(resolve => setTimeout(resolve, 5000));
     try {
       const res = await sequelize.query(" SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema = 'auth';", { type: sequelize.QueryTypes.SELECT});
       if (res[0].count === 0) {
@@ -73,7 +72,7 @@ fs
     return (file.indexOf('.') !== 0) && (file !== basename) && (file.slice(-3) === '.js');
   })
   .forEach(function(file) {
-    var model = sequelize['import'](path.join(__dirname, file));
+    var model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
     db[model.name] = model;
   });
 

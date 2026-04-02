@@ -1,11 +1,11 @@
 'use strict';
 var util = require('util');
 var ldap = require('ldapjs');
-var Promise = require('bluebird');
 var models = require('../../server/models/index.js');
 var _ = require('lodash');
 var ldap_helper = require('./ldap_helper.js');
 const node_funcs = require('../../node_funcs.js');
+const { Op } = require('sequelize');
 
 const log = node_funcs.log;
 
@@ -44,7 +44,7 @@ exports.getPermission = username => {
             where: {
                 name:
                     { 
-                        $in: ldapGroupNames
+                        [Op.in]: ldapGroupNames
                     } 
                 } 
             } 
@@ -75,7 +75,7 @@ exports.getPermission = username => {
         let rolesObjects = await models.Role.findAll({
             where: {
                 id: {
-                    $in: roleIds
+                    [Op.in]: roleIds
                 }
             }
         });

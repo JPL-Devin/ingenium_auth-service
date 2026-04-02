@@ -2,7 +2,6 @@
 var util = require('util');
 var models = require('../../server/models/index.js');
 var _ = require('lodash');
-var Promise = require('bluebird');
 const node_funcs = require('../../node_funcs.js');
 const RoleService = require('./RoleService.js');
 const UserService = require('./UserService.js');
@@ -35,22 +34,22 @@ exports.get_groups_for_permission = function(args, res, next) {
    * id String the id of the permission
    * no response value expected for this operation
    **/
-  models.Permission.findById(args.permission_id.value).then(function(permission) {
+  models.Permission.findByPk(args.permission_id.value).then(function(permission) {
     if (permission) {
       permission.getRoles()
       .then(function(roles) {
-        return Promise.map(roles, function(role) {
+        return Promise.all(roles.map(function(role) {
           return role.getGroups({
             attributes: ["id", "name"],
           });
-        });
+        }));
       }).then(function(groupLists) {
         var groups = _.flatten(groupLists);
         groups = _.uniqBy(groups, 'id');
 
-        return Promise.map(groups, function(group){
+        return Promise.all(groups.map(function(group){
           return RoleService.get_scopes_and_roles(group);
-        })
+        }))
       })
       .then(function(groups){
         res.status(200).json(groups);
@@ -74,7 +73,7 @@ exports.get_permission = function(args, res, next) {
    * id String the id of the permission
    * returns permission
    **/
-  models.Permission.findById(args.permission_id.value).then(function(permission) {
+  models.Permission.findByPk(args.permission_id.value).then(function(permission) {
     if (permission) {
       res.status(200).json(permission);
     } else {
@@ -96,22 +95,22 @@ exports.get_users_for_permission = function(args, res, next) {
    * id String the id of the permission
    * no response value expected for this operation
    **/
-  models.Permission.findById(args.permission_id.value).then(function(permission) {
+  models.Permission.findByPk(args.permission_id.value).then(function(permission) {
     if (permission) {
       permission.getRoles()
       .then(function(roles) {
-        return Promise.map(roles, function(role) {
+        return Promise.all(roles.map(function(role) {
           return role.getUsers({
             attributes: ["id", "username", "login_expire", "display_name", "createdAt", "updatedAt"],
           });
-        });
+        }));
       }).then(function(userLists) {
         var users = _.flatten(userLists);
         users = _.uniqBy(users, 'id');
 
-        return Promise.map(users, function(user){
+        return Promise.all(users.map(function(user){
           return UserService.get_user_full(user);
-        })
+        }))
       }).then(function(users){
         res.status(200).json(users);
       }).catch(function(err) {

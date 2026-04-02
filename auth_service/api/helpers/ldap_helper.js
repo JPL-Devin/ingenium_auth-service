@@ -3,7 +3,6 @@ var util = require('util');
 var ldap = require('ldapjs');
 var app = require('./../../app.js');
 var _ = require('lodash');
-var Promise = require('bluebird');
 var models = require('../../server/models/index.js');
 const dc = 'ou=personnel,dc=dir,dc=jpl,dc=nasa,dc=gov';
 const node_funcs = require('../../node_funcs.js');
@@ -20,8 +19,20 @@ function create_client() {
     client.on('error', function(err) {
         log.warning('LDAP connection failed.', util.inspect(err));
     });
-    Promise.promisifyAll(client);
     return client;
+}
+
+// Helper to promisify ldap client.search for ldapjs v3
+function searchPromise(client, base, opts) {
+    return new Promise(function(resolve, reject) {
+        client.search(base, opts, function(err, resobj) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(resobj);
+            }
+        });
+    });
 }
 exports.validate_ldap_groups_exist = function (groupnames) {
     var client = create_client();
@@ -35,10 +46,12 @@ exports.validate_ldap_groups_exist = function (groupnames) {
                 scope: 'sub'
             }
 
-            client.searchAsync(dc, opts).then(function (resobj) {
+            searchPromise(client, dc, opts).then(function (resobj) {
                 var entries = [];
                 resobj.on('searchEntry', function (entry) {
-                    entries.push(_.toLower(entry.object.cn));
+                    var pojo = entry.pojo;
+                    var cnAttr = pojo.attributes.find(function(a) { return a.type === 'cn'; });
+                    if (cnAttr && cnAttr.values.length > 0) entries.push(_.toLower(cnAttr.values[0]));
                 })
                 resobj.on('end', function () {
                     resolve(entries);
@@ -65,10 +78,12 @@ exports.validate_ldap_group_exists = function (groupname) {
             filter: '(&(objectclass=jplgroup)(cn=' + groupname + '))',
             scope: 'sub'
         }
-        client.searchAsync(dc, opts).then(function(resobj) {
+        searchPromise(client, dc, opts).then(function(resobj) {
             var entries = [];
             resobj.on('searchEntry', function(entry) {
-                entries.push(_.toLower(entry.object.cn));
+                var pojo = entry.pojo;
+                var cnAttr = pojo.attributes.find(function(a) { return a.type === 'cn'; });
+                if (cnAttr && cnAttr.values.length > 0) entries.push(_.toLower(cnAttr.values[0]));
             })
             resobj.on('end', function() {
                 if (_.includes(entries, groupname)) {
@@ -103,10 +118,12 @@ exports.validate_users_exist = function (users) {
                 scope: 'sub'
             }
 
-            client.searchAsync(dc, opts).then(function (resobj) {
+            searchPromise(client, dc, opts).then(function (resobj) {
                 var entries = [];
                 resobj.on('searchEntry', function (entry) {
-                    entries.push(_.toLower(entry.object.uid));
+                    var pojo = entry.pojo;
+                    var uidAttr = pojo.attributes.find(function(a) { return a.type === 'uid'; });
+                    if (uidAttr && uidAttr.values.length > 0) entries.push(_.toLower(uidAttr.values[0]));
                 })
                 resobj.on('end', function () {
                     resolve(entries);
@@ -118,7 +135,7 @@ exports.validate_users_exist = function (users) {
                     client.destroy();
                 })
             }).catch(function (err) {
-                log.warning("Problem with client.searchAsync command.", util.inspect(err));
+                log.warning("Problem with client search.", util.inspect(err));
                 reject();
                 client.destroy();
             })
@@ -133,10 +150,12 @@ exports.validate_user_exists = function (username) {
             filter: '(&(objectclass=person)(uid=' + username + '))',
             scope: 'sub'
         }
-        client.searchAsync(dc, opts).then(function(resobj) {
+        searchPromise(client, dc, opts).then(function(resobj) {
             var entries = [];
             resobj.on('searchEntry', function(entry) {
-                entries.push(_.toLower(entry.object.uid));
+                var pojo = entry.pojo;
+                var uidAttr = pojo.attributes.find(function(a) { return a.type === 'uid'; });
+                if (uidAttr && uidAttr.values.length > 0) entries.push(_.toLower(uidAttr.values[0]));
             })
             resobj.on('end', function() {
                 if (_.includes(entries, username)) {
@@ -154,7 +173,7 @@ exports.validate_user_exists = function (username) {
                 client.destroy();
             })
         }).catch(function(err) {
-            log.warning("Error in trying to execute the clent.searchAsyn command.", util.inspect(err));
+            log.warning("Error in trying to execute the client search.", util.inspect(err));
             reject();
             client.destroy();
         })
@@ -181,17 +200,20 @@ exports.getGroupsForUser = function (username) {
                     scope: 'sub'
                 }
 
-                client.searchAsync(dc, opts).then(function(resobj) {
+                searchPromise(client, dc, opts).then(function(resobj) {
                     var entries = [];
                     resobj.on('searchEntry', function (entry) {
-                        entries.push(entry.object);
+                        var pojo = entry.pojo;
+                        var attrs = {};
+                        pojo.attributes.forEach(function(a) { attrs[a.type] = a.values; });
+                        entries.push(attrs);
                     });
                     resobj.on('end', function (result) {
                         var groupsArr = [];
                         _.forEach(entries, function (entry) {
                             if (entry.uniqueMember) {
-                                var name = entry.cn;
-                                groupsArr.push(_.toLower(name));
+                                var name = entry.cn ? entry.cn[0] : null;
+                                if (name) groupsArr.push(_.toLower(name));
                             }
                         })
                         resolve(groupsArr);
@@ -203,7 +225,7 @@ exports.getGroupsForUser = function (username) {
                         client.destroy();
                     })
                 }).catch(function(err) {
-                    log.warning("Attempting to run the client.searchAsync command, but was unsuccessful.", util.inspect(err));
+                    log.warning("Attempting to run the client search, but was unsuccessful.", util.inspect(err));
                     reject();
                     client.destroy();
                 })
@@ -227,10 +249,13 @@ exports.get_user_info = function (username) {
             filter: '(&(objectclass=person)(uid=' + username + '))',
             scope: 'sub'
         }
-        client.searchAsync(dc, opts).then(function(resobj) {
+        searchPromise(client, dc, opts).then(function(resobj) {
             var entries = [];
             resobj.on('searchEntry', function(entry) {
-                entries.push({"username": entry.object.uid, "displayName": entry.object.displayName});
+                var pojo = entry.pojo;
+                var attrs = {};
+                pojo.attributes.forEach(function(a) { attrs[a.type] = a.values; });
+                entries.push({"username": attrs.uid ? attrs.uid[0] : null, "displayName": attrs.displayName ? attrs.displayName[0] : null});
             });
             resobj.on('end', function() {
                 resolve(entries);
@@ -242,7 +267,7 @@ exports.get_user_info = function (username) {
                 client.destroy();
             })
         }).catch(function(err) {
-            log.warning("Error searching for user, client.searchAsync problem.", util.inspect(err));
+            log.warning("Error searching for user.", util.inspect(err));
             reject();
             client.destroy();
         })
@@ -256,10 +281,13 @@ exports.search_users = function (user_string) {
             filter: '(&(objectclass=person)(uid=' + user_string + '*))',
             scope: 'sub'
         }
-        client.searchAsync(dc, opts).then(function(resobj) {
+        searchPromise(client, dc, opts).then(function(resobj) {
             var entries = [];
             resobj.on('searchEntry', function(entry) {
-                entries.push({"username": entry.object.uid, "displayName": entry.object.displayName});
+                var pojo = entry.pojo;
+                var attrs = {};
+                pojo.attributes.forEach(function(a) { attrs[a.type] = a.values; });
+                entries.push({"username": attrs.uid ? attrs.uid[0] : null, "displayName": attrs.displayName ? attrs.displayName[0] : null});
             });
             resobj.on('end', function() {
                 resolve(entries);
@@ -271,7 +299,7 @@ exports.search_users = function (user_string) {
                 client.destroy();
             })
         }).catch(function(err) {
-            log.warning("Error searching for users, client.searchAsync problem.", util.inspect(err));
+            log.warning("Error searching for users.", util.inspect(err));
             reject();
             client.destroy();
         })
@@ -286,10 +314,12 @@ exports.search_groups = function (group_string) {
             filter: '(&(objectclass=jplgroup)(cn=' + group_string + '*))',
             scope: 'sub'
         }
-        client.searchAsync(dc, opts).then(function(resobj) {
+        searchPromise(client, dc, opts).then(function(resobj) {
                 var entries = [];
                 resobj.on('searchEntry', function (entry) {
-                    entries.push(entry.object.cn);
+                    var pojo = entry.pojo;
+                    var cnAttr = pojo.attributes.find(function(a) { return a.type === 'cn'; });
+                    if (cnAttr && cnAttr.values.length > 0) entries.push(cnAttr.values[0]);
                 })
                 resobj.on('end', function () {
                     resolve(entries);
@@ -302,7 +332,7 @@ exports.search_groups = function (group_string) {
                 })
 
         }).catch(function(err) {
-            log.warning("Error attempting to search for groups, client.searchAsync problem", util.inspect(err));
+            log.warning("Error attempting to search for groups.", util.inspect(err));
             reject();
             client.destroy();
         })

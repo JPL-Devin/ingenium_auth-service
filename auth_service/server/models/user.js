@@ -3,7 +3,7 @@ module.exports = function(sequelize, DataTypes) {
   var User = sequelize.define('User', {
     display_name: DataTypes.STRING,
     username: {type: DataTypes.STRING, unique: true, allowNull: false},
-    login_expire: {type: DataTypes.DATE, defaultValue: sequelize.NOW }
+    login_expire: {type: DataTypes.DATE, defaultValue: DataTypes.NOW }
   });
 
   User.associate = models => {
