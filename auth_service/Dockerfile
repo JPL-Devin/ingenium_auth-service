@@ -1,4 +1,4 @@
-FROM cae-artifactory.jpl.nasa.gov:17001/node:22.14.0
+FROM node:22.14.0
 
 # Setup auth_service
 WORKDIR /auth_service
