@@ -30,13 +30,14 @@
     "uuid": "^11.1.0",
     "winston": "^3.19.0"
   },
-  "devDependencies": {
-    "pemtools": "^0.4.7",
-    "should": "^13.2.3",
-    "supertest": "^7.2.2"
-  },
+    "devDependencies": {
+      "jest": "^29.7.0",
+      "pemtools": "^0.4.7",
+      "should": "^13.2.3",
+      "supertest": "^7.2.2"
+    },
   "scripts": {
     "start": "node app.js",
-    "test": "swagger project test"
+    "test": "jest --coverage --forceExit --detectOpenHandles"
   }
 }
