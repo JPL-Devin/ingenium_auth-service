@@ -36,7 +36,7 @@ const umzug = new Umzug({
 });
 
 function logUmzugEvent(eventName) {
-    return function(name, migration) {
+    return function({ name }) {
         log.debug(`${ name } ${ eventName }`);
     }
 }
