@@ -125,11 +125,11 @@ exports.ensure_user = async function (username) {
 
 exports.ensure_users = function (usernames) {
     return new Promise(function(resolve, reject) {
-      return Promise.map(usernames, function(username) {
+      return Promise.all(usernames.map(function(username) {
           return models.User.findOrCreate({
               where: {username: username}
           })
-      }).then(function(response) {
+      })).then(function(response) {
           var new_users = _.map(response, function(responseArr) {
               return _.head(responseArr);
           })
@@ -140,11 +140,11 @@ exports.ensure_users = function (usernames) {
 
 exports.ensure_groups = function (groupnames) {
     return new Promise(function(resolve, reject) {
-        return Promise.map(groupnames, function (group) {
+        return Promise.all(groupnames.map(function (group) {
             return models.Group.findOrCreate({
                 where: {name: group}
             })
-        }).then(function (response) {
+        })).then(function (response) {
             var new_groups = _.map(response, function(responseArr) {
                 return _.head(responseArr);
             });
