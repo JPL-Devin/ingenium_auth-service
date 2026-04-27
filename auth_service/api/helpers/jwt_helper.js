@@ -2,14 +2,12 @@ var jwt = require('jsonwebtoken');
 var jwtHelper = require('../helpers/jwt_helper.js');
 var crypto = require('crypto');
 var redisClient = require('../../redis.js');
-var Promise = require('bluebird');
-Promise.promisifyAll(require('redis'));
 const node_funcs = require('../../node_funcs.js');
 const env_config = require("../../env_config.js");
 const models = require('../../server/models/index.js');
 const fs = require('fs');
 const path = require('path');
-const uuid = require('uuid');
+const { v4: uuidv4 } = require('uuid');
 
 const ACCESS_TOKEN_TIMEOUT = env_config.ACCESS_TOKEN_TIMEOUT;
 const TEN_SEC_OFFSET = env_config.TEN_SEC_OFFSET;
@@ -52,7 +50,7 @@ exports.decode_jwt = decode_jwt;
 exports.create_access_token = async function(username, permission) {
     // set time that user could possibly be logged in until.
     await updateLoggedInStatus(username);
-    var jti = uuid.v4();
+    var jti = uuidv4();
     var token = encode_token(username, permission, jti);
     log.info(`Access token created. timeout: ${ACCESS_TOKEN_TIMEOUT}`);
     return {"token": token, "access_token_timeout": ACCESS_TOKEN_TIMEOUT};
@@ -70,7 +68,7 @@ exports.refresh_token = async function(access_token) {
         log.debug(`Expires: ${env_config.long_expire}`);
 
         if ((Math.floor(Date.now() / 1000) - decoded.oit) < env_config.long_expire) {
-            let reply = await redisClient.redisClient.existsAsync(jti);
+            let reply = await redisClient.redisClient.exists(jti);
             if (reply == 0) {
                 let decodedPermission = {};
                 decodedPermission.scopes = decoded.scopes;
@@ -100,22 +98,19 @@ exports.get_jwt_from_header = function(req) {
     }
 }
 
-exports.is_token_blacklisted = function(jti) {
-    return new Promise(function(resolve, reject) {
-        redisClient.redisClient.getAsync(jti)
-            .then(function(reply) {
-                if (reply) {
-                    log.debug(`Token is blacklisted: ${jti}`);
-                    resolve(true);
-                } else {
-                    log.debug("Token isn't blacklisted.");
-                    resolve(false);
-                }
-            }).catch(function(err) {
-                reject();
-            })
-        })
-
+exports.is_token_blacklisted = async function(jti) {
+    try {
+        const reply = await redisClient.redisClient.get(jti);
+        if (reply) {
+            log.debug(`Token is blacklisted: ${jti}`);
+            return true;
+        } else {
+            log.debug("Token isn't blacklisted.");
+            return false;
+        }
+    } catch(err) {
+        throw err;
+    }
 }
 
 async function updateLoggedInStatus(_username, logout=false) {

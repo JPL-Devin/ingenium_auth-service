@@ -3,8 +3,7 @@ var util = require('util');
 var ldap = require('ldapjs');
 var fs = require('fs');
 var axios = require('axios');
-var uuid = require('uuid');
-var Promise = require('bluebird');
+const { v4: uuidv4 } = require('uuid');
 const node_funcs = require('../../node_funcs.js');
 const env_config = require('../../env_config.js');
 
@@ -24,7 +23,7 @@ module.exports.ldap_authenticate = function ldap_authenticate(username, password
     try {
         var client = ldap.createClient({
             url: ldapUrl,
-            tlsOptions: { secureProtocol: "TLSv1_method"}
+            tlsOptions: { minVersion: "TLSv1.2" }
         });
         client.on('error', function(err) {
             log.warning('LDAP error in authenticate function:', util.inspect(err));
@@ -58,7 +57,7 @@ module.exports.rsa_authenticate = async function rsa_authenticate(username, pass
         clientId: env_config.RSA_CLIENT_ID,
         subjectName: username,
         context: {
-            messageId: uuid.v4()
+            messageId: uuidv4()
         }
     }
     const headers = {
@@ -89,7 +88,7 @@ module.exports.rsa_authenticate = async function rsa_authenticate(username, pass
 		],
 		context: {
 			authnAttemptId: initData['context']['authnAttemptId'],
-			messageId: uuid.v4(),
+			messageId: uuidv4(),
 			inResponseTo: initData['context']['messageId']
 		}
     }

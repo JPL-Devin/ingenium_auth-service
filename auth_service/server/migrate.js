@@ -1,8 +1,7 @@
 const path = require('path');
 const child_process = require('child_process');
-const Promise = require('bluebird');
 const Sequelize = require('sequelize');
-const Umzug = require('umzug');
+const { Umzug, SequelizeStorage } = require('umzug');
 const node_funcs = require('../node_funcs.js');
 
 const log = node_funcs.log;
@@ -12,33 +11,32 @@ const sequelize = new Sequelize(env_config.db_name, env_config.db_username, env_
   "database": env_config.db_name,
   "host": env_config.db_host,
   "dialect": "mysql",
-  "logging": false
+  "logging": false,
+  "dialectModule": require('mysql2')
 });
 
 const umzug = new Umzug({
-    storage: 'sequelize',
-    storageOptions: {
-        sequelize: sequelize,
-    },
-
-    // see: https://github.com/sequelize/umzug/issues/17
     migrations: {
-        params: [
-            sequelize.getQueryInterface(), // queryInterface
-            sequelize.constructor, // DataTypes
-            function() {
-                throw new Error('Migration tried to use old style "done" callback. Please upgrade to "umzug" and return a promise instead.');
-            }
-        ],
-        path: path.join(process.env.PWD, '/server', '/migrations'),
-        pattern: /\.js$/
+        glob: path.join(process.env.PWD, '/server', '/migrations', '*.js'),
+        resolve: ({ name, path: migrationPath, context }) => {
+            const migration = require(migrationPath);
+            return {
+                name,
+                up: async () => migration.up(context.queryInterface, context.Sequelize),
+                down: async () => migration.down(context.queryInterface, context.Sequelize),
+            };
+        },
     },
-
-    logging: false
+    context: {
+        queryInterface: sequelize.getQueryInterface(),
+        Sequelize: Sequelize,
+    },
+    storage: new SequelizeStorage({ sequelize }),
+    logger: undefined,
 });
 
 function logUmzugEvent(eventName) {
-    return function(name, migration) {
+    return function({ name }) {
         log.debug(`${ name } ${ eventName }`);
     }
 }
@@ -47,36 +45,13 @@ umzug.on('migrated',  logUmzugEvent('migrated'));
 umzug.on('reverting', logUmzugEvent('reverting'));
 umzug.on('reverted',  logUmzugEvent('reverted'));
 
-function cmdStatus() {
-    let result = {};
+async function cmdStatus() {
+    const executed = await umzug.executed();
+    const pending = await umzug.pending();
 
-    return umzug.executed()
-      .then(executed => {
-        result.executed = executed;
-        return umzug.pending();
-    }).then(pending => {
-        result.pending = pending;
-        return result;
-    }).then(({ executed, pending }) => {
+    const current = executed.length > 0 ? executed[0].name : '<NO_MIGRATIONS>';
 
-        executed = executed.map(m => {
-            m.name = path.basename(m.file, '.js');
-            return m;
-        });
-        pending = pending.map(m => {
-            m.name = path.basename(m.file, '.js');
-            return m;
-        });
-
-        const current = executed.length > 0 ? executed[0].file : '<NO_MIGRATIONS>';
-        const status = {
-            current: current,
-            executed: executed.map(m => m.file),
-            pending: pending.map(m => m.file),
-        }
-
-        return { executed, pending };
-    })
+    return { executed, pending };
 }
 
 function cmdMigrate(){
@@ -84,15 +59,13 @@ function cmdMigrate(){
     return umzug.up();
 }
 
-function cmdMigrateNext() {
-    return cmdStatus()
-        .then(({ executed, pending }) => {
-            if (pending.length === 0) {
-                return Promise.reject(new Error('No pending migrations'));
-            }
-            const next = pending[0].name;
-            return umzug.up({ to: next });
-        })
+async function cmdMigrateNext() {
+    const { executed, pending } = await cmdStatus();
+    if (pending.length === 0) {
+        throw new Error('No pending migrations');
+    }
+    const next = pending[0].name;
+    return umzug.up({ to: next });
 }
 
 function cmdReset() {
@@ -100,15 +73,13 @@ function cmdReset() {
     return umzug.down({ to: 0 });
 }
 
-function cmdResetPrev() {
-    return cmdStatus()
-        .then(({ executed, pending }) => {
-            if (executed.length === 0) {
-                return Promise.reject(new Error('Already at initial state'));
-            }
-            const prev = executed[executed.length - 1].name;
-            return umzug.down({ to: prev });
-        })
+async function cmdResetPrev() {
+    const { executed, pending } = await cmdStatus();
+    if (executed.length === 0) {
+        throw new Error('Already at initial state');
+    }
+    const prev = executed[executed.length - 1].name;
+    return umzug.down({ to: prev });
 }
 
 function cmdHardReset() {

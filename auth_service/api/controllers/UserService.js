@@ -1,9 +1,9 @@
 'use strict';
 var util = require('util');
 var models = require('../../server/models/index.js');
-var Promise = require('bluebird');
 var _ = require('lodash');
 const node_funcs = require('../../node_funcs.js');
+const { Op } = require('sequelize');
 
 const log = node_funcs.log;
 
@@ -27,16 +27,16 @@ exports.get_all_users = function(args, res, next) {
   }
   if (!_.isUndefined(args.q.value)) {
     queryParams.where = {};
-    queryParams.where.username = {$like: (args.q.value) + '%'}
+    queryParams.where.username = {[Op.like]: (args.q.value) + '%'}
   }
   if (!_.isUndefined(args.offset.value)) {
     queryParams.offset = args.offset.value;
   }
 
   if (args.order.value === 'DESC') {
-    queryParams.order = 'username DESC';
+    queryParams.order = [['username', 'DESC']];
   } else if (args.order.value === 'ASC') {
-    queryParams.order = 'username ASC';
+    queryParams.order = [['username', 'ASC']];
   }
 
   // NEW V2 
@@ -45,10 +45,10 @@ exports.get_all_users = function(args, res, next) {
     log.trace("LOGGEDIN query parameter specified.");
     if(args.loggedin.value == "Yes"){
       queryParams.where = {};
-      queryParams.where.login_expire = { gte: Date.now() }
+      queryParams.where.login_expire = { [Op.gte]: Date.now() }
     }else{
       queryParams.where = {};
-      queryParams.where.login_expire = { lt: Date.now() }
+      queryParams.where.login_expire = { [Op.lt]: Date.now() }
     }
   }
 
@@ -59,15 +59,15 @@ exports.get_all_users = function(args, res, next) {
     //search for roles equal to query
     models.Role.findAndCountAll({
       where: {
-        name: { $like: args.rolefilter.value+'%' }
+        name: { [Op.like]: args.rolefilter.value+'%' }
       }
     })
     .then(function(roles) {
-      return Promise.map(roles.rows, function(role) {
+      return Promise.all(roles.rows.map(function(role) {
         return role.getUsers({
           attributes: ["id", "username", "login_expire", "display_name", "createdAt", "updatedAt"],
         });
-      });
+      }));
     }).then(function(userLists) {
       var users = _.flatten(userLists);
       users = _.uniqBy(users, 'id');
@@ -91,9 +91,9 @@ exports.get_all_users = function(args, res, next) {
         users = _.take(users, args.limit.value);
       }
 
-      return Promise.map(users, function(user){
+      return Promise.all(users.map(function(user){
         return get_user_full(user);
-      });
+      }));
     }).then(function(users){
       res.status(200).json({"total": total_count, "results": users});
     });
@@ -107,33 +107,33 @@ exports.get_all_users = function(args, res, next) {
     //fetch all permissions matching query
     models.Permission.findAll({
       where: { 
-        name: { $like: args.scopefilter.value+'%' }
+        name: { [Op.like]: args.scopefilter.value+'%' }
       }
     })
     .then(function(permissions){
       var user_ids = [];
       //fetch all roles with matching permissions
-      return Promise.map(permissions, function(permission){
+      return Promise.all(permissions.map(function(permission){
         return permission.getUsers()
         .then(function(users){
-          return Promise.map(users, function(user){
+          return Promise.all(users.map(function(user){
             user_ids.push(user.id);
-          });
+          }));
         })
-      })
+      }))
       .then(function(){
         //convert the user_ids back into users
         models.User.findAndCountAll({
           where: {
-            id: {$in: user_ids}
+            id: {[Op.in]: user_ids}
           },
           attributes: ["id", "username", "login_expire", "display_name", "createdAt", "updatedAt"]
         })
         .then(function(users) {
           total_count = users.count;
-          return Promise.map(users.rows, function(user){
+          return Promise.all(users.rows.map(function(user){
             return get_user_full(user);
-          });
+          }));
         })
         .then(function(users){
           // order by
@@ -171,19 +171,19 @@ exports.get_all_users = function(args, res, next) {
     if(typeof args.groupfilter.value === 'string' || args.groupfilter.value instanceof String){
       models.Group.findAll({
         where: { 
-          name: { $like: args.groupfilter.value+'%' }
+          name: { [Op.like]: args.groupfilter.value+'%' }
         }
       })
       .then(function(groups){
         //go through each group, get their users, and push to user_ids
-        return Promise.map(groups, function (group) {
+        return Promise.all(groups.map(function (group) {
           return group.getUsers()
           .then(function(users){
-            return Promise.map(users, function(user){
+            return Promise.all(users.map(function(user){
               user_ids.push(user.id);
-            });
+            }));
           })
-        })
+        }))
         .then(function(){
           //remove duplicates
           user_ids = _.uniq(user_ids);
@@ -191,15 +191,15 @@ exports.get_all_users = function(args, res, next) {
           //convert user_ids back into users
           models.User.findAndCountAll({
             where: {
-              id: {$in: user_ids}
+              id: {[Op.in]: user_ids}
             },
             attributes: ["id", "username", "login_expire", "display_name", "createdAt", "updatedAt"]
           })
           .then(function(users){
             total_count = users.count;
-            return Promise.map(users.rows, function(user){
+            return Promise.all(users.rows.map(function(user){
               return get_user_full(user);
-            });
+            }));
           })
           .then(function(users){
             // order by
@@ -231,9 +231,9 @@ exports.get_all_users = function(args, res, next) {
     models.User.findAndCountAll(queryParams)
     .then(function(users){
       total_count = users.count;
-      return Promise.map(users.rows, function(user){
+      return Promise.all(users.rows.map(function(user){
         return get_user_full(user);
-      });
+      }));
     })
     .then(function(users){
       res.status(200).json({"total": total_count, "results": users});
@@ -252,7 +252,7 @@ exports.get_user = function(args, res, next) {
    * id String the id of the user
    * returns user
    **/
-  models.User.findById(args.user_id.value).then(function(user) {
+  models.User.findByPk(args.user_id.value).then(function(user) {
     if (user) {
       get_user_full(user)
       .then(function(user){
@@ -264,7 +264,7 @@ exports.get_user = function(args, res, next) {
       res.status(404).json({message: msg});
     }
   }).catch(function(err) {
-    let msg = "get_user couldn't perform action, User.findById issue.";
+    let msg = "get_user couldn't perform action, User.findByPk issue.";
     log.critical(msg);
     res.status(500).json({message: msg});
   })
@@ -273,12 +273,12 @@ exports.get_user = function(args, res, next) {
 function get_user_full(user){
   return new Promise(function(resolve, reject){
     if(user){
-      Promise.join(
+      Promise.all([
         get_logged_in(user),
         get_scopes(user),
         get_roles(user),
         get_groups(user),
-        function(logged_in, scopes, roles, groups){
+      ]).then(function([logged_in, scopes, roles, groups]){
           user = user.toJSON();
 
           user.loggedin = logged_in;

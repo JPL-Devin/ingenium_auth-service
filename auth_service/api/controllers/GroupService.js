@@ -2,9 +2,9 @@
 var util = require('util');
 var models = require('../../server/models/index.js');
 var _ = require('lodash');
-var Promise = require('bluebird');
 const node_funcs = require('../../node_funcs.js');
 const RoleService = require('./RoleService.js');
+const { Op } = require('sequelize');
 const log = node_funcs.log;
 
 exports.get_all_groups = function(args, res, next) {
@@ -19,7 +19,7 @@ exports.get_all_groups = function(args, res, next) {
   if (!_.isUndefined(args.q.value)) {
     queryParams.where = {
       name: {
-        $like: (args.q.value) + '%'
+        [Op.like]: (args.q.value) + '%'
       }
     }
   }
@@ -27,9 +27,9 @@ exports.get_all_groups = function(args, res, next) {
     queryParams.offset = args.offset.value;
   }
   if (args.order.value === 'DESC') {
-    queryParams.order = 'name DESC';
+    queryParams.order = [['name', 'DESC']];
   } else if (args.order.value === 'ASC') {
-    queryParams.order = 'name ASC';
+    queryParams.order = [['name', 'ASC']];
   }
 
   // V2 Updates 
@@ -45,13 +45,13 @@ exports.get_all_groups = function(args, res, next) {
     //search for roles equal to query
     models.Role.findAndCountAll({
       where: {
-        name: { $like: args.rolefilter.value+'%' }
+        name: { [Op.like]: args.rolefilter.value+'%' }
       }
     })
     .then(function(roles) {
-      return Promise.map(roles.rows, function(role) {
+      return Promise.all(roles.rows.map(function(role) {
         return role.getGroups();
-      });
+      }));
     }).then(function(groupLists) {
       var groups = _.flatten(groupLists);
       groups = _.uniqBy(groups, 'id');
@@ -75,9 +75,9 @@ exports.get_all_groups = function(args, res, next) {
         groups = _.take(groups, args.limit.value);
       }
 
-      return Promise.map(groups, function(group){
+      return Promise.all(groups.map(function(group){
         return RoleService.get_scopes_and_roles(group);
-      })
+      }))
     })
     .then(function(groups){
       res.status(200).json({"total": total_count, "results": groups});
@@ -91,13 +91,13 @@ exports.get_all_groups = function(args, res, next) {
     //search for roles equal to query
     models.User.findAndCountAll({
       where: {
-        username: { $like: args.userfilter.value+'%' }
+        username: { [Op.like]: args.userfilter.value+'%' }
       }
     })
     .then(function(users) {
-      return Promise.map(users.rows, function(user) {
+      return Promise.all(users.rows.map(function(user) {
         return user.getGroups();
-      });
+      }));
     }).then(function(groupLists) {
       var groups = _.flatten(groupLists);
       groups = _.uniqBy(groups, 'id');
@@ -121,9 +121,9 @@ exports.get_all_groups = function(args, res, next) {
         groups = _.take(groups, args.limit.value);
       }
 
-      return Promise.map(groups, function(group){
+      return Promise.all(groups.map(function(group){
         return RoleService.get_scopes_and_roles(group);
-      })
+      }))
     }).then(function(groups){
       res.status(200).json({"total": total_count, "results": groups});
     });
@@ -136,22 +136,22 @@ exports.get_all_groups = function(args, res, next) {
     //search for roles equal to query
     models.Permission.findAndCountAll({
       where: {
-        name: { $like: args.scopefilter.value+'%' }
+        name: { [Op.like]: args.scopefilter.value+'%' }
       }
     })
     .then(function(permissions) {
-      return Promise.map(permissions.rows, function(permission) {
+      return Promise.all(permissions.rows.map(function(permission) {
         return permission.getRoles();
-      });
+      }));
     })
     .then(function(rolesLists) {
       //given roles, now remove duplicate roles
       var roles = _.flatten(rolesLists);
       roles = _.uniqBy(roles, 'id');
 
-      return Promise.map(roles, function(role) {
+      return Promise.all(roles.map(function(role) {
         return role.getGroups();
-      });
+      }));
     })
     .then(function(groupsList){
       var groups = _.flatten(groupsList);
@@ -176,9 +176,9 @@ exports.get_all_groups = function(args, res, next) {
         groups = _.take(groups, args.limit.value);
       }
 
-      return Promise.map(groups, function(group){
+      return Promise.all(groups.map(function(group){
         return RoleService.get_scopes_and_roles(group);
-      })
+      }))
     })
     .then(function(groups){
       res.status(200).json({"total": groups.length, "results": groups});
@@ -190,9 +190,9 @@ exports.get_all_groups = function(args, res, next) {
     .then(function(groups){
       if(groups.count > 0){
         total_count = groups.count;
-        return Promise.map(groups.rows, function(group){
+        return Promise.all(groups.rows.map(function(group){
           return RoleService.get_scopes_and_roles(group);
-        });
+        }));
       }else{
         let msg = "Group was not found";
         log.warning(msg);
@@ -210,7 +210,7 @@ exports.get_all_groups = function(args, res, next) {
 }
 
 exports.get_group = function(args, res, next) {
-  models.Group.findById(args.group_id.value)
+  models.Group.findByPk(args.group_id.value)
   .then(function(group) {
     if (group) {
       RoleService.get_scopes_and_roles(group)
@@ -228,7 +228,7 @@ exports.get_group = function(args, res, next) {
 }
 
 exports.delete_group = function(args, res, next) {
-    models.Group.findById(args.id.value)
+    models.Group.findByPk(args.id.value)
     .then(function(group) {
       if (group) {
         group.destroy()

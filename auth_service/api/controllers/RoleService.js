@@ -3,8 +3,8 @@ var models = require('../../server/models/index.js');
 var _ = require('lodash');
 var login_helper = require('../helpers/login_helper.js');
 var ldap_helper = require('../helpers/ldap_helper.js');
-var Promise = require('bluebird');
 var Sequelize = require('sequelize');
+const { Op } = Sequelize;
 var util = require('util');
 const env_config = require('../../env_config.js');
 const node_funcs = require('../../node_funcs.js');
@@ -23,7 +23,7 @@ exports.add_role_group = function(args, res, next) {
    * group_name String the name of the group you wish to add to this role
    * returns String
    **/
-  models.Role.findById(args.role_id.value)
+  models.Role.findByPk(args.role_id.value)
   .then(function(role) {
     if (role) {
       var groupname = _.trim(_.toLower(args.group_name.value));
@@ -34,7 +34,7 @@ exports.add_role_group = function(args, res, next) {
           models.Group.findOrCreate({
             where: {name: groupname}
           })
-          .spread(function(group, created) {
+          .then(function([group, created]) {
             role.addGroup(group)
             .then(function() {
               res.status(204).json();
@@ -78,7 +78,7 @@ exports.add_role_user = function(args, res, next) {
    * user_id String the id of the user to be added to the role
    * returns user
    **/
-    models.Role.findById(args.role_id.value).then(function(role) {
+    models.Role.findByPk(args.role_id.value).then(function(role) {
       if (role) {
         var username = _.trim(_.toLower(args.username.value));
 
@@ -88,7 +88,7 @@ exports.add_role_user = function(args, res, next) {
             models.User.findOrCreate({
               where: { username: username}
             })
-            .spread(function(user, created) {
+            .then(function([user, created]) {
               role.addUser(user)
               .then(function() {
                 res.status(204).json();
@@ -133,12 +133,12 @@ exports.create_role = function(args, res, next) {
     then(result => {
         if (result.valid == true) {
           if(args.data.value.name){
-            Promise.join(
+            Promise.all([
                 login_helper.ensure_users(result.usernames), // swanchr
                 login_helper.ensure_groups(result.groupnames), // ingenium-dev
                 get_permissions(desired_perms), // 4
                 make_role(args.data.value.name, args.data.value.description, args.data.value.venue_group_id), // ROLE_ANOTHER, This is a test role
-                (users, groups, permissions, role) => {
+            ]).then(([users, groups, permissions, role]) => {
                     // if arg permissions.length > 0 and permissions not defined  => could not set permissions
                     // if args permissions.length >0 and permissions.length != args permissions length => one or more permissions do not exist
                     if (desired_perms.length > 0 && !permissions) {
@@ -153,27 +153,28 @@ exports.create_role = function(args, res, next) {
                         log.debug(msg);
                         res.status(400).json({message: msg});
                     } else {
-                        Promise.join(
+                        Promise.all([
                             role.setUsers(users),
                             role.setPermissions(permissions),
                             role.setGroups(groups),
-                            () => {
+                        ]).then(() => {
                                 res.status(201).json({name: role.name, description: role.description, id: role.id});
-                            }
-                        ).catch(function(err) {
+                        }).catch(function(err) {
                             let msg = "create_role couldn't perform action";
                             log.critical(msg, util.inspect(err));
                             res.status(500).json({message: msg});
                         });
                     }
-                }).catch(Sequelize.ValidationError, function(err) {
-                    let msg = "Sequelize had an error";
-                    log.debug(msg, util.inspect(err));
-                    res.status(400).json({message: msg});
                 }).catch(function(err) {
-                    let msg = "create_role couldn't perform action";
-                    log.critical(msg, util.inspect(err));
-                    res.status(500).json({message: msg});
+                    if (err instanceof Sequelize.ValidationError) {
+                        let msg = "Sequelize had an error";
+                        log.debug(msg, util.inspect(err));
+                        res.status(400).json({message: msg});
+                    } else {
+                        let msg = "create_role couldn't perform action";
+                        log.critical(msg, util.inspect(err));
+                        res.status(500).json({message: msg});
+                    }
                 });
           } else {
               let msg = "Role name was not provided.";
@@ -199,7 +200,7 @@ exports.delete_role = function(args, res, next) {
    * id String the id of the role
    *
    **/
-    models.Role.findById(args.role_id.value).then(function(role) {
+    models.Role.findByPk(args.role_id.value).then(function(role) {
       if (role) {
         role.destroy().then(function(){
             res.status(204).json();
@@ -214,7 +215,7 @@ exports.delete_role = function(args, res, next) {
         res.status(404).json({message: msg});
       }
     }).catch(function(err) {
-        let msg = "delete_role couldn't perform action, findById issue.";
+        let msg = "delete_role couldn't perform action, findByPk issue.";
         log.critical(msg)
         res.status(500).json({message: msg});
     })
@@ -228,10 +229,9 @@ exports.delete_role_group = function(args, res, next) {
    * group_id String the id of the group you wish to add to this role
    * returns String
    **/
-    models.Role.findById(args.role_id.value).then(function(role) {
+    models.Role.findByPk(args.role_id.value).then(function(role) {
       if (role) {
         models.Group
-        //.findById(args.group_id.value)
         .findOne({ 
           where: {id: args.group_id.value}
         })
@@ -258,7 +258,7 @@ exports.delete_role_group = function(args, res, next) {
         res.status(404).json({message: msg})
       }
     }).catch(function(err) {
-        let msg = "delete_role_group couldn't perform action, findById issue.";
+        let msg = "delete_role_group couldn't perform action, findByPk issue.";
         log.critical(msg);
         res.status(500).json({message: msg});
     })
@@ -272,9 +272,9 @@ exports.delete_role_permission = function(args, res, next) {
    * permission_id String id of the permission
    * no response value expected for this operation
    **/
-  models.Role.findById(args.role_id.value).then(function(role) {
+  models.Role.findByPk(args.role_id.value).then(function(role) {
     if (role) {
-      models.Permission.findById(args.permission_id.value)
+      models.Permission.findByPk(args.permission_id.value)
       .then(function(permission) {
         if (permission) {
           role.removePermission(permission).then(function() {
@@ -288,7 +288,7 @@ exports.delete_role_permission = function(args, res, next) {
           res.status(404).json({message: msg});
         }
       }).catch(function(err) {
-        let msg = "delete_role_permission couldn't perform action, findById issue.";
+        let msg = "delete_role_permission couldn't perform action, findByPk issue.";
         log.critical(msg);
         res.status(500).json({message: msg});
       });
@@ -298,7 +298,7 @@ exports.delete_role_permission = function(args, res, next) {
       res.status(404).json({message: msg});
     }
   }).catch(function(err) {
-      let msg = "delete_role_permission couldn't perform action, findById issue.";
+      let msg = "delete_role_permission couldn't perform action, findByPk issue.";
       log.critical(msg);
       res.status(500).json({message: msg});
   })
@@ -312,7 +312,7 @@ exports.delete_role_user = function(args, res, next) {
    * user_id String the id of the user to be deleted from the role
    * returns user
    **/
-  models.Role.findById(args.role_id.value)
+  models.Role.findByPk(args.role_id.value)
   .then(function(role) {
     if (role) {
       models.User.findOne({
@@ -341,7 +341,7 @@ exports.delete_role_user = function(args, res, next) {
       res.status(404).json({message: msg});
     }
   }).catch(function(err) {
-      let msg = "delete_role_user couldn't perform specified action, Role.findById issue.";
+      let msg = "delete_role_user couldn't perform specified action, Role.findByPk issue.";
       log.critical(msg);
       res.status(404).json({message: msg});
   })
@@ -355,12 +355,12 @@ exports.edit_role = function(args, res, next) {
     validate_users_and_groups(desired_users, desired_groups).
     then(function(result){
         if (result.valid == true) {
-            Promise.join(
-                models.Role.findById(args.role_id.value),
+            Promise.all([
+                models.Role.findByPk(args.role_id.value),
                 login_helper.ensure_users(result.usernames),
                 login_helper.ensure_groups(result.groupnames),
                 get_permissions(desired_perms),
-                function(role, users, groups, permissions) {
+            ]).then(function([role, users, groups, permissions]) {
                     if (!role) {
                       let msg = "Role couldn't be found.";
                       log.debug(msg);
@@ -377,16 +377,16 @@ exports.edit_role = function(args, res, next) {
                           log.debug(msg);
                           res.status(400).json({message: msg});
                       } else {
-                          Promise.join(
-                              role.updateAttributes({
-                                  name: args.data.value.name,
-                                  description: args.data.value.description,
-                                  venue_group_id: args.data.value.venue_group_id,
-                              }),
-                              role.setUsers(users),
-                              role.setPermissions(permissions),
-                              role.setGroups(groups),
-                              function() {
+                              Promise.all([
+                                  role.update({
+                                      name: args.data.value.name,
+                                      description: args.data.value.description,
+                                      venue_group_id: args.data.value.venue_group_id,
+                                  }),
+                                  role.setUsers(users),
+                                  role.setPermissions(permissions),
+                                  role.setGroups(groups),
+                              ]).then(function() {
                                   var usersP = _.map(users, function(user){
                                     return { "id": user.id, "username": user.username };
                                   });
@@ -405,27 +405,29 @@ exports.edit_role = function(args, res, next) {
                                     permissions: permissionP// permissions: permissions
                                   };
                                   res.status(200).json(return_role);
-                              }
-                          ).catch(Sequelize.ValidationError, function(err) {
-                            let msg = `Sequelize had a validation error. ${util.inspect(err.errors)}`;
-                            log.debug(msg);
-                            res.status(400).json({message: msg});
                           }).catch(function(err) {
+                            if (err instanceof Sequelize.ValidationError) {
+                              let msg = `Sequelize had a validation error. ${util.inspect(err.errors)}`;
+                              log.debug(msg);
+                              res.status(400).json({message: msg});
+                            } else {
                               let msg = "edit_role couldn't perform specified action";
                               log.critical(msg);
                               res.status(500).json({message: msg});
+                            }
                           })
                       }
                     }
-                }
-            ).catch(Sequelize.ValidationError, function(err) {
-                let msg = `Sequelize had a validation error. ${util.inspect(err.errors)}`;
-                log.debug(msg);
-                res.status(400).json({message: msg});
             }).catch(function(err) {
-                let msg = "edit_role couldn't perform specified action";
-                log.critical(msg);
-                res.status(500).json({message: msg});
+                if (err instanceof Sequelize.ValidationError) {
+                    let msg = `Sequelize had a validation error. ${util.inspect(err.errors)}`;
+                    log.debug(msg);
+                    res.status(400).json({message: msg});
+                } else {
+                    let msg = "edit_role couldn't perform specified action";
+                    log.critical(msg);
+                    res.status(500).json({message: msg});
+                }
             })
         } else {
             let msg = `Error when updating role: ${util.inspect(result.problems)}`;
@@ -440,18 +442,18 @@ exports.edit_role = function(args, res, next) {
 }
 
 exports.edit_role_groups = function(args, res, next) {
-    models.Role.findById(args.role_id.value).then(function(role) {
+    models.Role.findByPk(args.role_id.value).then(function(role) {
       if (role) {
         var desired_groups = args.data.value;
 
         ldap_helper.validate_ldap_groups_exist(desired_groups)
         .then(function(valid_groups) {
           if (valid_groups.length == desired_groups.length) {
-            return Promise.map(valid_groups, function(group) {
+            return Promise.all(valid_groups.map(function(group) {
               return models.Group.findOrCreate({
                 where: {name: group}
               })
-            }).then(function(response) {
+            })).then(function(response) {
                 var newGroups = _.map(response, function(responseArr) {
                     return _.head(responseArr);
                 })
@@ -459,9 +461,9 @@ exports.edit_role_groups = function(args, res, next) {
                 .then(function() {
                     return role.getGroups();
                 }).then(function(associatedGroups) {
-                    return Promise.map(associatedGroups, function(group){
+                    return Promise.all(associatedGroups.map(function(group){
                         return get_scopes_and_roles(group);
-                    })
+                    }))
                 }).then(function(resGroups){
                     res.status(200).json(resGroups);
                 })
@@ -481,7 +483,7 @@ exports.edit_role_groups = function(args, res, next) {
             res.status(404).json({message: msg});
           }
         }).catch(function(err) {
-            let msg = "edit_role_groups couldn't perform specified action, alidate_ldap_groups_exist issue.";
+            let msg = "edit_role_groups couldn't perform specified action, validate_ldap_groups_exist issue.";
             log.critical(msg);
             res.status(404).json({message: msg});
         })
@@ -491,7 +493,7 @@ exports.edit_role_groups = function(args, res, next) {
         res.status(404).json({message: msg});
       }
     }).catch(function(err) {
-        let msg = `edit_role_groups couldn't perform specified action, Role.findById issue. ${util.inspect(err)}`;
+        let msg = `edit_role_groups couldn't perform specified action, Role.findByPk issue. ${util.inspect(err)}`;
         log.critical(msg);
         res.status(404).json({message: msg});
     })
@@ -505,28 +507,28 @@ exports.edit_role_users = function(args, res, next) {
      * user_ids List the list of desired user names for this role
      * returns List
      **/
-    models.Role.findById(args.role_id.value).then(function(role) {
+    models.Role.findByPk(args.role_id.value).then(function(role) {
       if (role) {
         var desired_users = args.data.value;
 
         ldap_helper.validate_users_exist(desired_users)
         .then(function(valid_users) {
             if (valid_users.length == desired_users.length) {
-                return Promise.map(valid_users, function (user) {
+                return Promise.all(valid_users.map(function (user) {
                     return models.User.findOrCreate({
                         where: {username: user}
                     })
-                }).then(function (response) {
+                })).then(function (response) {
                     var newUsers = _.map(response, function (responseArr) {
                         return _.head(responseArr);
                     });
                     role.setUsers(newUsers)
                         .then(function () {
                             return role.getUsers();
-                        }).then(function (associatedUsers) {
-                            return Promise.map(associatedUsers, function(user){
+                        }).then(function(associatedUsers) {
+                            return Promise.all(associatedUsers.map(function(user){
                                 return UserService.get_user_full(user);
-                            });
+                            }));
                         }).then(function(users){
                             res.status(200).json(users);
                         }).catch(function (err) {
@@ -558,7 +560,7 @@ exports.edit_role_users = function(args, res, next) {
         res.status(404).json({message: msg});
       }
     }).catch(function(err) {
-        let msg = "edit_role_users couldn't perform action, Role.findById issue.";
+        let msg = "edit_role_users couldn't perform action, Role.findByPk issue.";
         log.critical(msg);
         res.status(500).json({message: msg});
     })
@@ -573,13 +575,14 @@ exports.edit_role_users = function(args, res, next) {
    * permission_ids List The ids of desired permissions for this role
    * returns List
    **/
-  Promise.join(
-    models.Role.findById(args.role_id.value),
+  Promise.all([
+    models.Role.findByPk(args.role_id.value),
     models.Permission.findAll({
       where: {
         id: args.data.value,
       }
-    }), function(role, permissions) {
+    }),
+  ]).then(function([role, permissions]) {
       if (!role || (permissions.length != args.data.value.length)) {
         if (!role) {
           let msg = `Role not found. Role Id: ${args.role_id.value}`;
@@ -606,7 +609,7 @@ exports.edit_role_users = function(args, res, next) {
         });
       }
     }).catch(function(err) {
-      let msg = "edit_role_permissions couldn't perform specified action, Permission.findAll issue.";
+      let msg = "edit_role_permissions couldn't perform specified action, Promise.all issue.";
       log.critical(msg);
       res.status(500).json({message: msg});
   })
@@ -623,7 +626,7 @@ exports.get_all_roles = function(args, res, next) {
   }
   queryParams.where = {};
   if (!_.isUndefined(args.name.value)) {
-    queryParams.where.name = {$like: (args.name.value) + '%'}
+    queryParams.where.name = {[Op.like]: (args.name.value) + '%'}
   }
 
   if (!_.isUndefined(args.venue_group_id.value)) {
@@ -639,9 +642,9 @@ exports.get_all_roles = function(args, res, next) {
   }
 
   if (args.order.value === 'DESC') {
-    queryParams.order = 'name DESC';
+    queryParams.order = [['name', 'DESC']];
   } else if (args.order.value === 'ASC') {
-    queryParams.order = 'name ASC';
+    queryParams.order = [['name', 'ASC']];
   }
 
   models.Role.findAndCountAll(queryParams)
@@ -655,14 +658,14 @@ exports.get_all_roles = function(args, res, next) {
 }
 
 exports.get_role = function(args, res, next) {
-    models.Role.findById(args.role_id.value).
+    models.Role.findByPk(args.role_id.value).
     then(function(role) {
         if (role) {
-            Promise.join(
+            Promise.all([
                 role.getUsers(),
                 role.getPermissions(),
                 role.getGroups(),
-                function(users, permissions, groups) {
+            ]).then(function([users, permissions, groups]) {
                     var resUsers = _.map(users, function(user) {
                         return _.pick(user, ['id','username']);
                     });
@@ -682,9 +685,8 @@ exports.get_role = function(args, res, next) {
                       permissions: resPerms
                     };
                     res.status(200).json(return_role);
-                }
-            ).catch(function(err) {
-                let msg = "get_role couldn't perform action, Promise.join issue.";
+            }).catch(function(err) {
+                let msg = "get_role couldn't perform action, Promise.all issue.";
                 log.critical(msg);
                 res.status(500).json({message: msg});
             })
@@ -694,7 +696,7 @@ exports.get_role = function(args, res, next) {
             res.status(400).json({message: msg});
         }
     }).catch(function(err) {
-        let msg = `get_role couldn't perform action, Role.findById issue. ${util.inspect(err)}`;
+        let msg = `get_role couldn't perform action, Role.findByPk issue. ${util.inspect(err)}`;
         log.critical(msg);
         res.status(400).json({message: msg});
     });
@@ -707,12 +709,12 @@ exports.get_role_groups = function(args, res, next) {
    * id String the id of the role
    * returns List
    **/
-  models.Role.findById(args.role_id.value).then(function(role){
+  models.Role.findByPk(args.role_id.value).then(function(role){
     if (role) {
       role.getGroups().then(function(groups) {
-        return Promise.map(groups, function(group){
+        return Promise.all(groups.map(function(group){
             return get_scopes_and_roles(group);
-        })
+        }))
         .then(function(resGroups){
             res.status(200).json(resGroups);
           }).catch(function(err) {
@@ -736,7 +738,7 @@ exports.get_role_permissions = function(args, res, next) {
    * id String the id of the role
    * returns List
    **/
-  models.Role.findById(args.role_id.value).then(function(role) {
+  models.Role.findByPk(args.role_id.value).then(function(role) {
     if (role) {
       role.getPermissions()
       .then(function(permissions) {
@@ -768,14 +770,14 @@ exports.get_role_users = function(args, res, next) {
    * id String the id of the role
    * returns users
    **/
-  models.Role.findById(args.role_id.value)
+  models.Role.findByPk(args.role_id.value)
   .then(function(role) {
     if (role) {
       role.getUsers()
       .then(function(users) {
-        return Promise.map(users, function(user){
+        return Promise.all(users.map(function(user){
             return UserService.get_user_full(user);
-        })
+        }))
       })
       .then(function(users){
         res.status(200).json(users);
@@ -790,7 +792,7 @@ exports.get_role_users = function(args, res, next) {
       res.status(404).json({message: msg})
     }
   }).catch(function(err) {
-      let msg = "get_users_for_role couldn't perform action, Role.findById issue.";
+      let msg = "get_users_for_role couldn't perform action, Role.findByPk issue.";
       log.critical(msg);
       res.status(500).json({message: msg});
   })
@@ -871,17 +873,17 @@ function make_role(name, description, venue_group_id) {
 function get_permissions(permArr) {
     return models.Permission.findAll({
         where: {
-            id: {$in: permArr}
+            id: {[Op.in]: permArr}
         }
     })
 }
 
 function get_scopes_and_roles(group){
     return new Promise(function(resolve, reject) {
-        Promise.join(
+        Promise.all([
             get_scopes(group),
             get_roles(group), 
-            function(scopes, roles){
+        ]).then(function([scopes, roles]){
                 group = group.toJSON();
 
                 //group.scopes = scopes;
@@ -895,8 +897,7 @@ function get_scopes_and_roles(group){
                 delete group.UserGroup;
 
                 resolve(group);
-            }
-        ).catch(function(err){
+        }).catch(function(err){
             reject(err);
         })
     });
@@ -908,9 +909,9 @@ function get_scopes(group){
             group.getRoles()
             .then(function(roles){
                 if(roles){
-                    return Promise.map(roles, function(role){
+                    return Promise.all(roles.map(function(role){
                         return role.getPermissions();
-                    })
+                    }))
                 }else{
                     reject();
                 }

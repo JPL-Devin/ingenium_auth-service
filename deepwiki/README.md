@@ -1,0 +1,38 @@
+# DeepWiki Documentation — Ingenium Auth Service
+
+This directory contains auto-generated documentation from the [DeepWiki](https://deepwiki.com) analysis of the Ingenium Auth Service codebase.
+
+## Table of Contents
+
+- [1 Ingenium Auth Service — Overview](01-overview.md)
+  - [1.1 Getting Started — Local Development Setup](01.1-getting-started.md)
+  - [1.2 System Requirements and Functional Specifications](01.2-system-requirements.md)
+- [2 Core Architecture](02-core-architecture.md)
+  - [2.1 Application Entry Point and Request Pipeline](02.1-application-entry-point.md)
+  - [2.2 Configuration and Environment Variables](02.2-configuration-and-environment-variables.md)
+  - [2.3 Logging and Utility Functions](02.3-logging-and-utility-functions.md)
+  - [2.4 Redis Session Store](02.4-redis-session-store.md)
+- [3 Authentication and Token Management](03-authentication-and-token-management.md)
+  - [3.1 Login, Logout, and Token Refresh Endpoints](03.1-login-logout-and-token-refresh-endpoints.md)
+  - [3.2 JWT Helper — Token Encoding, Decoding, and Blacklisting](03.2-jwt-helper.md)
+  - [3.3 LDAP and RSA Authentication Helpers](03.3-ldap-and-rsa-authentication-helpers.md)
+  - [3.4 Login Helper — Permission Aggregation](03.4-login-helper.md)
+- [4 RBAC API — Roles, Permissions, Users, and Groups](04-rbac-api.md)
+  - [4.1 Role Service](04.1-role-service.md)
+  - [4.2 User Service](04.2-user-service.md)
+  - [4.3 Group Service](04.3-group-service.md)
+  - [4.4 Permission Service](04.4-permission-service.md)
+  - [4.5 LDAP Service](04.5-ldap-service.md)
+- [5 Data Layer — Models and Migrations](05-data-layer.md)
+  - [5.1 Sequelize Models and Associations](05.1-sequelize-models-and-associations.md)
+  - [5.2 Database Migrations and Seeding](05.2-database-migrations-and-seeding.md)
+- [6 API Reference — Swagger Specification](06-api-reference.md)
+  - [6.1 Authentication Endpoints (/login, /logout, /refresh_token)](06.1-authentication-endpoints.md)
+  - [6.2 RBAC Management Endpoints (/roles, /users, /groups, /permissions, /ldap)](06.2-rbac-management-endpoints.md)
+- [7 Testing](07-testing.md)
+  - [7.1 Python Integration Test Suite](07.1-python-integration-test-suite.md)
+  - [7.2 Node.js Client Test Suite](07.2-nodejs-client-test-suite.md)
+- [8 CI/CD and Infrastructure](08-cicd-and-infrastructure.md)
+  - [8.1 Jenkins CI/CD Pipeline](08.1-jenkins-cicd-pipeline.md)
+  - [8.2 Docker Compose Stack](08.2-docker-compose-stack.md)
+- [9 Glossary](09-glossary.md)
