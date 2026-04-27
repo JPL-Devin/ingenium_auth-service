@@ -43,15 +43,20 @@ exports.logout = async function(token, res, next) {
   // add jti to redis
   // set timeout to refresh token timeout
   var decoded = jwtHelper.decode_jwt(token);
-  if (token == null) {
+  if (token == null || decoded == null) {
       res.status(401).json({message: "Unauthorized"});
   } else {
-      var jti = decoded.jti;
-      await redis.redisClient.set(jti, jti);
-      await redis.redisClient.expire(jti, Math.floor(ms(env_config.ACCESS_TOKEN_TIMEOUT)/1000));
-      // log.debug(`Decoded token, username: ${decoded.username} jti: ${decoded.jti}`);
-      jwtHelper.updateLoggedInStatus(decoded.username, true);
-      res.status(200).json();
+      try {
+          var jti = decoded.jti;
+          await redis.redisClient.set(jti, jti);
+          await redis.redisClient.expire(jti, Math.floor(ms(env_config.ACCESS_TOKEN_TIMEOUT)/1000));
+          // log.debug(`Decoded token, username: ${decoded.username} jti: ${decoded.jti}`);
+          jwtHelper.updateLoggedInStatus(decoded.username, true);
+          res.status(200).json();
+      } catch (err) {
+          log.error(`logout error: ${err}`);
+          res.status(500).json({message: "Internal server error"});
+      }
   }
 }
 
